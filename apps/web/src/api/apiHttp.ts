@@ -18,6 +18,7 @@ import {
   type RespuestaAlmacen,
   type RespuestaAtacar,
   type RespuestaCapturar,
+  type RespuestaCatalogoTienda,
   type RespuestaComprarTienda,
   type RespuestaCrearPersonaje,
   type RespuestaDesbloqueos,
@@ -29,6 +30,7 @@ import {
   type RespuestaInventario,
   type RespuestaLogin,
   type RespuestaLogout,
+  type RespuestaPerfil,
   type RespuestaRegistro,
   type RespuestaRestaurar,
   type RespuestaSalud,
@@ -37,21 +39,90 @@ import {
   type RespuestaVerificarZona,
   type RespuestaViajar,
   type UbicacionActual,
-} from "./ApiJuego";
+} from "./ApiJuego.ts";
+
+export type { DetalleCriaturaRestaurada } from "./ApiJuego.ts";
 
 let tokenActual: string | null = null;
 
-async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown): Promise<T> {
-  const urlBase = import.meta.env.VITE_URL_API ?? "";
-  const url = `${urlBase}/api${ruta}`;
+export function normalizarUrlBaseApi(urlApi?: string): string {
+  return (urlApi ?? "").trim().replace(/\/+$/, "");
+}
 
+export function construirEncabezadosApi(
+  token: string | null,
+  claveGateway?: string,
+): Record<string, string> {
   const encabezados: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
-  if (tokenActual) {
-    encabezados.Authorization = `Bearer ${tokenActual}`;
+  const clave = (claveGateway ?? "").trim();
+  if (clave) {
+    encabezados.apikey = clave;
   }
+
+  if (token) {
+    encabezados.Authorization = `Bearer ${token}`;
+  }
+
+  return encabezados;
+}
+
+export function resolverErrorRespuestaHttp(
+  estadoHttp: number,
+  datosError: unknown,
+): { codigo: string; mensaje: string } {
+  const errorApi = (datosError as { error?: { codigo?: string; mensaje?: string } } | null)?.error;
+  if (errorApi) {
+    return {
+      codigo: errorApi.codigo ?? "ERROR_DESCONOCIDO",
+      mensaje: errorApi.mensaje ?? "No se pudo completar la solicitud.",
+    };
+  }
+
+  if (estadoHttp === 429) {
+    return {
+      codigo: "LIMITE_SOLICITUDES",
+      mensaje:
+        "Has superado el límite de solicitudes por minuto. Espera un momento e inténtalo de nuevo.",
+    };
+  }
+
+  return {
+    codigo: "ERROR_DESCONOCIDO",
+    mensaje: "No se pudo completar la solicitud.",
+  };
+}
+
+const RUTAS_AUTENTICACION_PUBLICA = new Set([
+  "/usuarios/login",
+  "/usuarios/ingreso",
+  "/usuarios/registro",
+  "/autenticacion/login",
+  "/autenticacion/ingreso",
+  "/autenticacion/registro",
+]);
+
+export function esRutaAutenticacionPublica(ruta: string): boolean {
+  const rutaLimpia = ruta.split("?")[0].replace(/\/+$/, "");
+  return RUTAS_AUTENTICACION_PUBLICA.has(rutaLimpia);
+}
+
+export function debeNotificarSesionExpirada(
+  estadoHttp: number,
+  ruta: string,
+  teniaToken: boolean,
+): boolean {
+  return estadoHttp === 401 && teniaToken && !esRutaAutenticacionPublica(ruta);
+}
+
+async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown): Promise<T> {
+  const entorno = import.meta.env;
+  const urlBase = normalizarUrlBaseApi(entorno?.VITE_URL_API);
+  const url = `${urlBase}/api${ruta}`;
+  const tokenEnviado = tokenActual;
+  const encabezados = construirEncabezadosApi(tokenEnviado, entorno?.VITE_CLAVE_GATEWAY);
 
   let respuesta: Response;
   try {
@@ -65,20 +136,20 @@ async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown): Pro
   }
 
   if (!respuesta.ok) {
-    let codigo = "ERROR_DESCONOCIDO";
-    let mensaje = "No se pudo completar la solicitud.";
+    let datosError: unknown = null;
 
     try {
-      const datosError = await respuesta.json();
-      if (datosError?.error) {
-        codigo = datosError.error.codigo ?? codigo;
-        mensaje = datosError.error.mensaje ?? mensaje;
-      }
+      datosError = await respuesta.json();
     } catch {
       // simplificacion: si el cuerpo no es JSON legible, se usan los valores por defecto.
     }
 
-    if (respuesta.status === 401 && typeof window !== "undefined") {
+    const { codigo, mensaje } = resolverErrorRespuestaHttp(respuesta.status, datosError);
+
+    if (
+      debeNotificarSesionExpirada(respuesta.status, ruta, Boolean(tokenEnviado)) &&
+      typeof window !== "undefined"
+    ) {
       window.dispatchEvent(new CustomEvent("aethelgard:no-autorizado"));
     }
 
@@ -106,7 +177,13 @@ export const apiHttp = {
   },
 
   cerrarSesion(): Promise<RespuestaLogout> {
-    return solicitar<RespuestaLogout>("POST", "/usuarios/logout");
+    // simplificacion: autenticación JWT stateless sin lista negra en servidor; se purga el token localmente sin invocar un endpoint /usuarios/logout inexistente. Si se implementa revocación de sesiones en servidor, conectar aquí el POST correspondiente.
+    tokenActual = null;
+    return Promise.resolve({ mensaje: "Sesión cerrada correctamente." });
+  },
+
+  obtenerPerfil(): Promise<RespuestaPerfil> {
+    return solicitar<RespuestaPerfil>("GET", "/usuarios/perfil");
   },
 
   crearPersonaje(peticion: PeticionCrearPersonaje): Promise<RespuestaCrearPersonaje> {
@@ -161,6 +238,10 @@ export const apiHttp = {
     return solicitar<RespuestaInventario>("GET", "/inventario");
   },
 
+  obtenerCatalogoTienda(): Promise<RespuestaCatalogoTienda> {
+    return solicitar<RespuestaCatalogoTienda>("GET", "/tienda");
+  },
+
   comprarEnTienda(peticion: PeticionComprarTienda): Promise<RespuestaComprarTienda> {
     return solicitar<RespuestaComprarTienda>("POST", "/tienda/comprar", peticion);
   },
@@ -190,7 +271,14 @@ export const apiHttp = {
     return solicitar<EspecieDetalle>("GET", `/especies/${encodeURIComponent(slug)}`);
   },
 
-  obtenerHistorial(): Promise<RespuestaHistorial> {
-    return solicitar<RespuestaHistorial>("GET", "/historial");
+  obtenerHistorial(categoria?: string): Promise<RespuestaHistorial> {
+    const sufijo = categoria ? `?categoria=${encodeURIComponent(categoria)}` : "";
+    return solicitar<RespuestaHistorial>("GET", `/historial${sufijo}`);
+  },
+  actualizarOrdenEquipo(peticion: {
+    criaturaIds?: string[];
+    orden?: { criaturaId: string; orden: number }[];
+  }): Promise<RespuestaEquipo> {
+    return solicitar<RespuestaEquipo>("PATCH", "/equipo/orden", peticion);
   },
 } satisfies ApiJuego;
