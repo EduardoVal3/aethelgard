@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
-import { api, type PersonajeActivo } from "@/api";
+import { useAutenticacion } from "@/contextos/ContextoAutenticacion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,44 +67,36 @@ import { toast } from "@/components/ui/8bit/toast";
 export function PaginaKitUi() {
   // Estado para el formulario de prueba
   const [nombreExplorador, setNombreExplorador] = useState("");
-  const [especieSeleccionada, setEspecieSeleccionada] = useState("lobo-gris");
+  const [especieSeleccionada, setEspecieSeleccionada] = useState("lobo-estepario");
   const [mensajeFormulario, setMensajeFormulario] = useState<string | null>(null);
 
-  // Estado para la sección de carga con API simulada
-  const [personaje, setPersonaje] = useState<PersonajeActivo | null>(null);
-  const [cargandoApi, setCargandoApi] = useState(true);
+  // Estado para la sección de carga con API del servidor (solo consulta si existe sesión y personaje)
+  const {
+    token,
+    personajeActivo: personaje,
+    cargando: cargandoSesion,
+    actualizarPersonajeActivo,
+  } = useAutenticacion();
+  const [recargandoApi, setRecargandoApi] = useState(false);
+  const cargandoApi = cargandoSesion || recargandoApi;
 
   const cargarDatosPersonaje = async () => {
-    setCargandoApi(true);
+    if (!token || !personaje) {
+      toast("Inicia sesión con un personaje activo para consultar el servidor.");
+      return;
+    }
+    setRecargandoApi(true);
     try {
-      const datos = await api.obtenerPersonajeActivo();
-      setPersonaje(datos);
+      const datos = await actualizarPersonajeActivo();
+      if (!datos) {
+        toast("No se encontró un personaje activo en el servidor.");
+      }
     } catch {
       toast("Error al cargar los datos del personaje.");
     } finally {
-      setCargandoApi(false);
+      setRecargandoApi(false);
     }
   };
-
-  useEffect(() => {
-    let activo = true;
-    api
-      .obtenerPersonajeActivo()
-      .then((datos) => {
-        if (activo) {
-          setPersonaje(datos);
-          setCargandoApi(false);
-        }
-      })
-      .catch(() => {
-        if (activo) {
-          setCargandoApi(false);
-        }
-      });
-    return () => {
-      activo = false;
-    };
-  }, []);
 
   const manejarEnvioFormulario = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -176,9 +168,9 @@ export function PaginaKitUi() {
                 <SelectValue placeholder="Selecciona una criatura" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="lobo-gris">Lobo Gris (Nivel 1)</SelectItem>
-                <SelectItem value="pico-de-hacha">Pico de Hacha (Nivel 2)</SelectItem>
-                <SelectItem value="arana-lobo-gigante">Araña Lobo Gigante (Nivel 1)</SelectItem>
+                <SelectItem value="lobo-estepario">Lobo Estepario (Nivel 1)</SelectItem>
+                <SelectItem value="vibora-rocosa">Víbora Rocosa (Nivel 1)</SelectItem>
+                <SelectItem value="cangrejo-abismal">Cangrejo Abismal (Nivel 1)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -355,7 +347,7 @@ export function PaginaKitUi() {
             <DialogTrigger asChild>
               <Button>Abrir diálogo de encuentro</Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>¡Encuentro en el camino!</DialogTitle>
                 <DialogDescription>
@@ -380,7 +372,7 @@ export function PaginaKitUi() {
             <AlertDialogTrigger asChild>
               <Button variant="destructive">Confirmar retirada</Button>
             </AlertDialogTrigger>
-            <AlertDialogContent>
+            <AlertDialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
               <AlertDialogHeader>
                 <AlertDialogTitle>¿Huir de la batalla?</AlertDialogTitle>
                 <AlertDialogDescription>
@@ -433,8 +425,10 @@ export function PaginaKitUi() {
                   <Spinner variant="diamond" className="size-4" />
                   <span>Consultando API...</span>
                 </div>
-              ) : (
+              ) : personaje ? (
                 <Badge>Conectado</Badge>
+              ) : (
+                <Badge variant="outline">{token ? "Sin personaje" : "Sin sesión"}</Badge>
               )}
             </div>
             <CardDescription>
@@ -467,7 +461,11 @@ export function PaginaKitUi() {
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Sin datos disponibles.</p>
+              <p className="text-xs text-muted-foreground">
+                {token
+                  ? "Crea tu personaje explorador para inspeccionar su estado en vivo."
+                  : "Inicia sesión para consultar los datos del personaje en vivo."}
+              </p>
             )}
           </CardContent>
           <CardFooter>
@@ -475,7 +473,7 @@ export function PaginaKitUi() {
               size="sm"
               variant="outline"
               onClick={() => void cargarDatosPersonaje()}
-              disabled={cargandoApi}
+              disabled={cargandoApi || !token || !personaje}
               className="w-full"
             >
               {cargandoApi ? "Cargando..." : "Recargar datos del servidor"}
