@@ -65,7 +65,7 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
     tokenAcceso = datosRegistro.tokenAcceso;
   });
 
-  it('Flujo 2: Creación exitosa de personaje con especie inicial "lobo-gris"', async () => {
+  it('Flujo 2: Creación exitosa de personaje con especie inicial "lobo-estepario"', async () => {
     const res = await fetch(`${urlBase}/personajes`, {
       method: 'POST',
       headers: {
@@ -74,7 +74,7 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
       },
       body: JSON.stringify({
         nombre: 'ArturoFase5',
-        especieInicialSlug: 'lobo-gris',
+        especieInicialSlug: 'lobo-estepario',
       }),
     });
 
@@ -84,9 +84,9 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
     personajeId = datos.personajeId;
     assert.strictEqual(datos.monedas, 100);
     assert.strictEqual(datos.ubicacionActualId, 'LOC-01');
-    assert.strictEqual(datos.criaturaInicial.especieSlug, 'lobo-gris');
+    assert.strictEqual(datos.criaturaInicial.especieSlug, 'lobo-estepario');
     assert.strictEqual(datos.criaturaInicial.nivel, 1);
-    assert.strictEqual(datos.criaturaInicial.hpActual, 30);
+    assert.strictEqual(datos.criaturaInicial.hpActual, 34);
     criaturaInicialId = datos.criaturaInicial.criaturaId;
   });
 
@@ -99,7 +99,7 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
       },
       body: JSON.stringify({
         nombre: 'ArturoSegundo',
-        especieInicialSlug: 'lobo-gris',
+        especieInicialSlug: 'lobo-estepario',
       }),
     });
 
@@ -117,7 +117,7 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
     assert.strictEqual(res.status, 200);
     const datos = (await res.json()) as any;
     assert.strictEqual(datos.criaturas.length, 1);
-    assert.strictEqual(datos.criaturas[0].slug, 'lobo-gris');
+    assert.strictEqual(datos.criaturas[0].slug, 'lobo-estepario');
     assert.strictEqual(datos.criaturas[0].nivel, 1);
     assert.strictEqual(datos.criaturas[0].orden, 1);
   });
@@ -170,8 +170,8 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
     assert.strictEqual(datos.error.codigo, 'CONEXION_INVALIDA');
   });
 
-  it('Flujo 8: Movimiento inválido hacia una zona bloqueada ej. ZON-04 desde LOC-02 (403 ZONA_BLOQUEADA)', async () => {
-    // 1. Desplazarse de ZON-01 a LOC-02 (conectada y desbloqueada inicialmente)
+  it('Flujo 8: Movimiento inválido hacia una zona bloqueada ej. LOC-02 desde ZON-01 (403 ZONA_BLOQUEADA)', async () => {
+    // Desde ZON-01 intentar viajar a LOC-02 (conectada topológicamente, pero bloqueada hasta completar ZON-01 al 100%)
     const resHaciaLoc02 = await fetch(`${urlBase}/mundo/viajar`, {
       method: 'POST',
       headers: {
@@ -180,26 +180,26 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
       },
       body: JSON.stringify({ destinoId: 'LOC-02' }),
     });
-    assert.strictEqual(resHaciaLoc02.status, 200, 'Viaje a LOC-02 debe ser 200');
 
-    // 2. Desde LOC-02 intentar viajar a ZON-04 (conectada topológicamente, pero bloqueada en ZonaDesbloqueada)
-    const resHaciaZon04 = await fetch(`${urlBase}/mundo/viajar`, {
+    assert.strictEqual(resHaciaLoc02.status, 403, 'Viaje a zona bloqueada debe responder 403');
+    const datos = (await resHaciaLoc02.json()) as any;
+    assert.strictEqual(datos.error.codigo, 'ZONA_BLOQUEADA');
+  });
+
+  it('Flujo 9: Validación de rechazo del 7mo miembro en el equipo con equipo lleno (409 EQUIPO_COMPLETO)', async () => {
+    // Regresar a la localidad segura LOC-01 para gestionar el almacén
+    const resVolverLoc01 = await fetch(`${urlBase}/mundo/viajar`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${tokenAcceso}`,
       },
-      body: JSON.stringify({ destinoId: 'ZON-04' }),
+      body: JSON.stringify({ destinoId: 'LOC-01' }),
     });
+    assert.strictEqual(resVolverLoc01.status, 200, 'Regreso a LOC-01 debe responder 200');
 
-    assert.strictEqual(resHaciaZon04.status, 403, 'Viaje a zona bloqueada debe responder 403');
-    const datos = (await resHaciaZon04.json()) as any;
-    assert.strictEqual(datos.error.codigo, 'ZONA_BLOQUEADA');
-  });
-
-  it('Flujo 9: Validación de rechazo del 7mo miembro en el equipo con equipo lleno (409 EQUIPO_COMPLETO)', async () => {
     // Obtener especie para crear criaturas de prueba
-    const especie = await prisma.especie.findFirstOrThrow({ where: { slug: 'lobo-gris' } });
+    const especie = await prisma.especie.findFirstOrThrow({ where: { slug: 'lobo-estepario' } });
 
     // Llenar el equipo hasta tener 6 criaturas (ya tenemos 1, creamos 5 en equipo)
     for (let i = 2; i <= 6; i++) {
@@ -208,11 +208,11 @@ describe('Integración E2E: Mundo, Personaje y Equipo (Fase 5c)', () => {
           personajeId,
           especieId: especie.id,
           nivel: 1,
-          hpActual: 30,
-          hpMaximo: 30,
-          ataque: 42,
-          defensa: 58,
-          velocidad: 50,
+          hpActual: 38,
+          hpMaximo: 38,
+          ataque: 44,
+          defensa: 38,
+          velocidad: 52,
           enEquipo: true,
           ordenEquipo: i,
         },
